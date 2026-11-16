@@ -1,9 +1,9 @@
 {
-  "version": "1.0.33",
+  "version": "1.0.35",
   "date": "2026-11-16",
   "product": "FGUARD",
   "changelog": [
-    "SSL VPN clients can connect. The server certificate keeps the same key and CA, and the profile downloads as .ovpn.",
-    "The VPN port, login check and OpenVPN service stay in place after a hard reboot."
+    "A blocked AnyDesk can no longer leave the LAN on its own port 6568. Port 80 drops only a packet that carries the AnyDesk name.",
+    "The rest of the web stays on the same path. Clearing the block removes only that app."
   ]
 }
