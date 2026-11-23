@@ -50,3 +50,5 @@ licenses.csv
 # The private key lives in the issuer's home directory, never in this repo.
 license-private.pem
 license-public.pem
+build/initial-root-password.txt
+*.initial-password.txt

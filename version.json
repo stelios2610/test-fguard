@@ -1,8 +1,11 @@
 {
-  "version": "1.0.39",
-  "date": "2026-11-22",
+  "version": "1.0.40",
+  "date": "2026-11-23",
   "product": "FGUARD",
   "changelog": [
-    "Licenses are signed with a private key that stays off the firewall. A license made before this version no longer counts."
+    "Updates apply only when version.json is signed and the archive matches that signature.",
+    "The factory admin password must be replaced before the rest of the UI will open.",
+    "Image builds no longer ship a published root password.",
+    "HA config sync checks the peer SSH host key and refuses any other key."
   ]
 }

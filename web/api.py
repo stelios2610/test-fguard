@@ -22,7 +22,9 @@ import io
 import psutil
 from web.auth import (require_auth, attempt_login, create_session,
                       delete_session, get_session_user, ensure_default_admin,
-                      hash_password, is_rate_limited, COOKIE_NAME, SESSION_HOURS)
+                      is_rate_limited, COOKIE_NAME, SESSION_HOURS,
+                      password_change_required, change_admin_password,
+                      filter_settings_update)
 
 from db import database
 from core import (monitor, ips, rules_engine, web_filter, app_control,
@@ -369,7 +371,8 @@ def _ctx(request, **kw):
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request, error: str = "", next: str = "/"):
     if get_session_user(request):
-        return RedirectResponse(url="/", status_code=302)
+        target = "/account/password" if password_change_required() else "/"
+        return RedirectResponse(url=target, status_code=302)
     return templates.TemplateResponse(request, "login.html", {"error": error, "app_version": APP_VERSION})
 
 @app.post("/login")
@@ -385,8 +388,12 @@ async def login_submit(request: Request,
                                           status_code=429)
     if attempt_login(username, password, otp):
         token = create_session(username)
-        # Only allow relative redirects to prevent open redirect attacks
-        safe_next = next if (next and next.startswith("/") and not next.startswith("//")) else "/"
+        # Only allow relative redirects to prevent open redirect attacks.
+        # The factory password can open the password page and nothing else.
+        if password_change_required():
+            safe_next = "/account/password"
+        else:
+            safe_next = next if (next and next.startswith("/") and not next.startswith("//")) else "/"
         response = RedirectResponse(url=safe_next, status_code=302)
         response.set_cookie(
             COOKIE_NAME, token,
@@ -404,6 +411,30 @@ async def logout(request: Request):
     response = RedirectResponse(url="/login", status_code=302)
     response.delete_cookie(COOKIE_NAME)
     return response
+
+
+@app.get("/account/password", response_class=HTMLResponse)
+async def password_page(request: Request, error: str = ""):
+    return templates.TemplateResponse(request, "password.html", {
+        "error": error, "app_version": APP_VERSION,
+    })
+
+
+@app.post("/account/password", response_class=HTMLResponse)
+async def password_submit(request: Request,
+                          current_password: str = Form(...),
+                          new_password: str = Form(...),
+                          confirm_password: str = Form(...)):
+    if new_password != confirm_password:
+        return templates.TemplateResponse(request, "password.html", {
+            "error": "New passwords do not match", "app_version": APP_VERSION,
+        }, status_code=400)
+    ok, message = change_admin_password(current_password, new_password)
+    if not ok:
+        return templates.TemplateResponse(request, "password.html", {
+            "error": message, "app_version": APP_VERSION,
+        }, status_code=400)
+    return RedirectResponse(url="/", status_code=302)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1735,8 +1766,9 @@ async def api_get_settings():
 @app.post("/api/settings")
 async def api_save_settings(request: Request):
     data = await request.json()
-    for k,v in data.items(): database.set_setting(k,v)
-    return {"status":"ok"}
+    for k, v in filter_settings_update(data).items():
+        database.set_setting(k, v)
+    return {"status": "ok"}
 @app.post("/api/settings/sync-firewall")
 async def api_sync_fw():
     r = rules_engine.sync_all_rules()
@@ -1745,15 +1777,12 @@ async def api_sync_fw():
 @app.post("/api/settings/change-password")
 async def api_change_password(request: Request):
     data = await request.json()
-    current = data.get("current_password", "")
-    new_pw  = data.get("new_password", "")
-    if not new_pw or len(new_pw) < 8:
-        raise HTTPException(400, "Password must be at least 8 characters")
-    stored_hash = database.get_setting("admin_password_hash", "")
-    from web.auth import verify_password
-    if not verify_password(current, stored_hash):
-        raise HTTPException(401, "Current password is incorrect")
-    database.set_setting("admin_password_hash", hash_password(new_pw))
+    ok, message = change_admin_password(
+        data.get("current_password", ""), data.get("new_password", ""),
+    )
+    if not ok:
+        status = 401 if message == "Current password is incorrect" else 400
+        raise HTTPException(status, message)
     return {"status": "ok"}
 
 @app.post("/api/auth/mfa/begin")
@@ -2307,6 +2336,13 @@ async def api_get_ha():
 @app.post("/api/ha/config")
 async def api_save_ha(request: Request):
     data = await request.json()
+    key = (data.get("peer_hostkey") or "").strip()
+    if key:
+        try:
+            ha_manager.parse_host_key(key)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        data["peer_hostkey"] = " ".join(ha_manager.parse_host_key(key))
     database.save_ha_config(**data)
     return {"status": "ok"}
 
