@@ -568,6 +568,7 @@ def initialize():
             advert_interval REAL DEFAULT 1,
             auth_pass TEXT DEFAULT '',
             peer_ip TEXT DEFAULT '',
+            peer_hostkey TEXT DEFAULT '',
             preempt INTEGER DEFAULT 1,
             sync_enabled INTEGER DEFAULT 1,
             sync_peer TEXT DEFAULT '',
@@ -577,6 +578,11 @@ def initialize():
     """)
 
     # ── Default HA config row ─────────────────────────────────────────────────
+    try:
+        c.execute("ALTER TABLE ha_config ADD COLUMN peer_hostkey TEXT DEFAULT ''")
+    except Exception:
+        pass
+
     c.execute("INSERT OR IGNORE INTO ha_config (id, updated_at) VALUES (1, ?)",
               (datetime.now().isoformat(),))
 
@@ -2044,7 +2050,7 @@ def get_ha_config():
 def save_ha_config(**kwargs):
     allowed = {"enabled","role","interface","virtual_ip","virtual_ip_mask",
                "router_id","priority","advert_interval","auth_pass","peer_ip",
-               "preempt","sync_enabled","sync_peer","sync_interval"}
+               "peer_hostkey","preempt","sync_enabled","sync_peer","sync_interval"}
     fields = {k: v for k, v in kwargs.items() if k in allowed}
     fields["updated_at"] = datetime.now().isoformat()
     sets = ", ".join(f"{k} = ?" for k in fields)
