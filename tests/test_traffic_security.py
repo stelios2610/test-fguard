@@ -104,6 +104,45 @@ def test_conntrackd_uses_the_peer():
         render_conntrackd_conf("", "10.0.0.2", "eth1")
 
 
+def test_commercial_inspection_stays_selective():
+    import io
+    import tarfile
+    from core.commercial import (
+        extract_rules_from_tar, filter_policy, quic_rules,
+        render_appid_rules, render_https_category_rules, rule_file_list,
+    )
+    from core.traffic_security import TLS_BYPASS, sslsplit_command
+    assert "fguard-signatures.rules" in rule_file_list(signatures=True)
+    assert "fguard-signatures.rules" not in rule_file_list()
+    text = render_appid_rules((("Zoom", ("zoom.us",)),))
+    assert "alert tls" in text and "drop tls" not in text
+    assert 'content:"zoom.us"' in text
+    categories = render_https_category_rules(["bad.example"])
+    assert 'msg:"FGUARD category bad.example"' in categories
+    assert quic_rules(["lan0"])[0][3:5] == ["udp", "--dport"]
+    assert "nbg.gr" in TLS_BYPASS and "windowsupdate.com" in TLS_BYPASS
+    command = sslsplit_command({
+        "ca_key": "/tmp/ca.key", "ca_cert": "/tmp/ca.crt", "listen_port": 8443,
+        "content_log": "/tmp/tls",
+    })
+    assert "-S" in command and "/tmp/tls" in command
+    blob = io.BytesIO()
+    with tarfile.open(fileobj=blob, mode="w:gz") as archive:
+        payload = b'alert ip any any -> any any (msg:"sample"; sid:1; rev:1;)\n'
+        info = tarfile.TarInfo("rules/emerging-test.rules")
+        info.size = len(payload)
+        archive.addfile(info, io.BytesIO(payload))
+        bad = tarfile.TarInfo("../evil.rules")
+        bad.size = 4
+        archive.addfile(bad, io.BytesIO(b"nope"))
+    rules = extract_rules_from_tar(blob.getvalue())
+    assert "sid:1" in rules and "nope" not in rules
+    policy = filter_policy({"traffic_ips_enabled": "1", "tls_inspect_enabled": "1", "apps": {"YouTube": "1", "nope": "1"}}, ["YouTube"])
+    assert policy["traffic_ips_enabled"] == "1"
+    assert policy["tls_refused"] == "1"
+    assert policy["apps"] == {"YouTube": "1"}
+
+
 def test_download_buttons_install_with_apt():
     assert package_install_argv("suricata") == ["apt-get", "install", "-y", "suricata"]
     assert package_install_argv(["clamav", "clamav-freshclam"])[:4] == ["apt-get", "install", "-y", "clamav"]
