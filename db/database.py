@@ -583,6 +583,16 @@ def initialize():
     except Exception:
         pass
 
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS fleet_nodes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            base_url TEXT NOT NULL,
+            token TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+    """)
+
     c.execute("INSERT OR IGNORE INTO ha_config (id, updated_at) VALUES (1, ?)",
               (datetime.now().isoformat(),))
 
@@ -2045,6 +2055,30 @@ def get_ha_config():
     row = conn.execute("SELECT * FROM ha_config WHERE id = 1").fetchone()
     conn.close()
     return dict(row) if row else {}
+
+
+def get_fleet_nodes():
+    conn = get_connection()
+    rows = conn.execute("SELECT id, name, base_url, token, created_at FROM fleet_nodes ORDER BY id").fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
+def add_fleet_node(name, base_url, token):
+    conn = get_connection()
+    conn.execute(
+        "INSERT INTO fleet_nodes (name, base_url, token, created_at) VALUES (?, ?, ?, ?)",
+        (name, base_url, token, datetime.now().isoformat()),
+    )
+    conn.commit()
+    conn.close()
+
+
+def delete_fleet_node(node_id):
+    conn = get_connection()
+    conn.execute("DELETE FROM fleet_nodes WHERE id = ?", (node_id,))
+    conn.commit()
+    conn.close()
 
 
 def save_ha_config(**kwargs):

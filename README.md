@@ -2,7 +2,7 @@
 
 **FGUARD** is a professional-grade network security gateway with a full web-based management interface. Built on Linux, it provides enterprise firewall features for small and medium businesses, branch offices, and home labs.
 
-> Current version: **v1.0.40**
+> Current version: **v1.0.41**
 
 ---
 
@@ -23,9 +23,10 @@
 ### Security
 - **GeoIP Blocking** — block traffic by country using ipset
 - **Web Filter** — DNS blocking for custom domains and small built-in category lists, plus DoH and QUIC blocking. It does not decrypt HTTPS.
-- **IPS** — host and half-open connection heuristics (port scan, floods, brute force). This is not a Suricata or Snort signature IPS.
-- **Application Control** — block a short list of applications by port, address, and TLS server name
-- **DLP, file type checks, spam, and ClamAV** — on-demand scans of content you submit. They do not inspect forwarded client traffic.
+- **Traffic Security** — optional Suricata IPS on LAN-to-WAN client traffic, updating URL categories, ClamAV on files Suricata stores, and HTTPS inspection. All of these stay off until an administrator enables them. HTTPS inspection also requires an explicit confirmation because clients must trust the firewall CA. A stopped IPS fails open. These feeds are not FortiGuard and this is not a certified throughput rating.
+- **IPS** — host and half-open connection heuristics (port scan, floods, brute force), separate from the optional Suricata path.
+- **Application Control** — block applications by port, address, and TLS server name
+- **DLP, file type checks, spam, and ClamAV** — on-demand scans of content you submit. The download antivirus on Traffic Security is the path that scans files extracted from client traffic.
 - **Reputation filtering** — block known malicious IPs
 
 ### Management
@@ -33,7 +34,8 @@
 - Dashboard with real-time traffic stats (72-hour rolling window)
 - Network discovery
 - Certificate management (PKI)
-- High Availability (HA) manager
+- High Availability (HA) manager with optional connection sync when conntrackd is installed
+- Read-only health view of other FGUARD nodes. It does not push policy.
 - Logs viewer
 - **OTA Updates** — pull and apply updates from the UPDATE-FGUARD repository
 - License system (HMAC-SHA256, MAC-bound, lifetime or timed)
