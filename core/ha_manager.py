@@ -186,8 +186,26 @@ def apply_ha():
     ok3, out, err = run(["systemctl", "restart", "keepalived"])
     if ok3:
         database.add_log("INFO", details="HA keepalived started/reloaded")
+        _start_session_sync(database.get_ha_config())
         return True, "keepalived restarted"
     return False, err or out
+
+
+def _start_session_sync(cfg):
+    """Keep existing connections across failover. A missing daemon leaves VRRP running."""
+    try:
+        from core.session_sync import install_session_sync
+        from core.platform import run as platform_run
+        iface = cfg.get("interface") or "eth1"
+        peer = (cfg.get("peer_ip") or cfg.get("sync_peer") or "").strip()
+        ok, out, _ = platform_run(["ip", "-4", "-o", "addr", "show", "dev", iface])
+        local_ip = ""
+        if ok and out:
+            local_ip = out.split()[3].split("/")[0]
+        sync_ok, sync_msg = install_session_sync(local_ip, peer, iface)
+        database.add_log("INFO" if sync_ok else "WARN", details="HA session sync: " + sync_msg)
+    except Exception as exc:
+        database.add_log("WARN", details="HA session sync: " + str(exc))
 
 
 def stop_ha():

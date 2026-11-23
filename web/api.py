@@ -108,6 +108,11 @@ if _IS_LINUX:
     except Exception:
         pass
     try:
+        from core import traffic_security as _traffic
+        _traffic.restore()
+    except Exception:
+        pass
+    try:
         if database.get_dmz_configs():
             network_manager.apply_dmz()
     except Exception:
@@ -476,6 +481,14 @@ async def webfilter_page(request: Request):
 async def ips_page(request: Request):
     return _ctx(request, template="ips.html",
                 signatures=ips.get_signatures(), alerts=ips.get_alerts(100))
+
+@app.get("/traffic", response_class=HTMLResponse)
+async def traffic_page(request: Request):
+    from core import traffic_security
+    report = traffic_security.summarize_blocks(database.get_logs(limit=300, action_filter="THREAT"))
+    return _ctx(request, template="traffic.html",
+                traffic=traffic_security.status(), report=report,
+                nodes=database.get_fleet_nodes())
 
 @app.get("/vpn", response_class=HTMLResponse)
 async def vpn_page(request: Request):
@@ -1321,6 +1334,167 @@ async def api_ips_clear(): ips.clear_alerts(); return {"status":"ok"}
 async def api_ips_blocked(): return {"blocked": ips.get_blocked_ips()}
 @app.post("/api/ips/unblock/{ip}")
 async def api_ips_unblock(ip: str): ips.unblock_ip(ip); return {"status":"ok"}
+
+
+def _traffic_planes():
+    wan = database.get_setting("wan_interface", "") or ""
+    lan = database.get_setting("lan_interface", "") or ""
+    lans = [item.strip() for item in lan.split(",") if item.strip()]
+    ifaces = list(lans)
+    if wan and wan not in ifaces:
+        ifaces.append(wan)
+    return wan, lans, ifaces
+
+
+@app.get("/api/traffic/status")
+async def api_traffic_status():
+    from core import traffic_security
+    report = traffic_security.summarize_blocks(database.get_logs(limit=300, action_filter="THREAT"))
+    return {"status": traffic_security.status(), "report": report}
+
+
+@app.post("/api/traffic/ips")
+async def api_traffic_ips(request: Request):
+    _require_license("Traffic IPS")
+    from core import traffic_security
+    from core.app_control import PREDEFINED_APPS
+    data = await request.json()
+    enabled = bool(data.get("enabled"))
+    wan, lans, ifaces = _traffic_planes()
+    ok, msg = traffic_security.apply_ips(enabled, [], ifaces, wan, lans)
+    if ok and enabled:
+        apps = [
+            {"name": name, "domains": cfg.get("domains") or []}
+            for name, cfg in PREDEFINED_APPS.items()
+            if database.get_setting("appblock_%s" % name) == "1"
+        ]
+        traffic_security.apply_app_rules(apps)
+        traffic_security.start_eve_reader()
+    if ok:
+        database.set_setting("traffic_ips_enabled", "1" if enabled else "0")
+    return {"status": "ok" if ok else "error", "message": msg}
+
+
+@app.post("/api/traffic/categories")
+async def api_traffic_categories(request: Request):
+    _require_license("Web categories")
+    from core import traffic_security
+    data = await request.json()
+    if not data.get("enabled"):
+        ok, msg = traffic_security.remove_categories()
+        if ok:
+            database.set_setting("traffic_categories_enabled", "0")
+        return {"status": "ok" if ok else "error", "message": msg}
+    domains, errors = traffic_security.update_category_feeds()
+    if not domains:
+        return {"status": "error", "message": "; ".join(errors) or "No domains downloaded"}
+    ok, msg = traffic_security.apply_categories(domains)
+    if ok:
+        database.set_setting("traffic_categories_enabled", "1")
+    return {"status": "ok" if ok else "error", "message": msg, "domains": len(domains), "errors": errors}
+
+
+@app.post("/api/traffic/av")
+async def api_traffic_av(request: Request):
+    _require_license("Download antivirus")
+    data = await request.json()
+    enabled = "1" if data.get("enabled") else "0"
+    database.set_setting("traffic_av_enabled", enabled)
+    from core import traffic_security
+    traffic_security.start_eve_reader()
+    return {"status": "ok", "message": "Download scanning %s" % ("on" if enabled == "1" else "off")}
+
+
+@app.post("/api/traffic/tls")
+async def api_traffic_tls(request: Request):
+    _require_license("HTTPS inspection")
+    from core import traffic_security
+    data = await request.json()
+    enabled = bool(data.get("enabled"))
+    if not enabled:
+        ok, msg = traffic_security.disable_tls()
+        database.set_setting("tls_inspect_enabled", "0")
+        return {"status": "ok" if ok else "error", "message": msg}
+    lan = (database.get_setting("lan_interface", "") or "").split(",")[0].strip()
+    try:
+        ok, msg = traffic_security.enable_tls(bool(data.get("confirm")), lan)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    if ok:
+        database.set_setting("tls_inspect_enabled", "1")
+        database.set_setting("tls_inspect_confirmed", "1")
+    return {"status": "ok" if ok else "error", "message": msg}
+
+
+@app.post("/api/traffic/measure")
+async def api_traffic_measure():
+    from core import traffic_security
+    ok, result = traffic_security.measure_interfaces(1)
+    if not ok:
+        return {"status": "error", "message": result}
+    return {"status": "ok", "interfaces": result, "note": "Megabits measured on this firewall for one second. This is not a lab IPS throughput rating."}
+
+
+@app.get("/api/fleet")
+async def api_fleet_list():
+    import secrets as _secrets
+    token = database.get_setting("fleet_token", "") or ""
+    if not token:
+        token = _secrets.token_urlsafe(24)
+        database.set_setting("fleet_token", token)
+    nodes = []
+    for node in database.get_fleet_nodes():
+        item = dict(node)
+        item["token"] = "saved"
+        nodes.append(item)
+    return {"local_token": token, "nodes": nodes}
+
+
+@app.post("/api/fleet")
+async def api_fleet_add(request: Request):
+    from core.fleet import normalize_base_url
+    data = await request.json()
+    try:
+        base = normalize_base_url(data.get("base_url") or "")
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    token = (data.get("token") or "").strip()
+    name = (data.get("name") or base).strip()[:80]
+    if not token:
+        raise HTTPException(400, "The other firewall's fleet token is required")
+    database.add_fleet_node(name, base, token)
+    return {"status": "ok"}
+
+
+@app.delete("/api/fleet/{node_id}")
+async def api_fleet_delete(node_id: int):
+    database.delete_fleet_node(node_id)
+    return {"status": "ok"}
+
+
+@app.get("/api/fleet/status")
+async def api_fleet_status():
+    from core.fleet import fetch_health
+    results = []
+    for node in database.get_fleet_nodes():
+        try:
+            health = fetch_health(node["base_url"], node["token"])
+            results.append({"id": node["id"], "name": node["name"], "ok": True, "health": health})
+        except Exception as exc:
+            results.append({"id": node["id"], "name": node["name"], "ok": False, "error": str(exc)})
+    return {"nodes": results}
+
+
+@app.get("/api/fleet/health")
+async def api_fleet_health(request: Request):
+    from core.fleet import token_matches
+    from core import traffic_security
+    expected = database.get_setting("fleet_token", "") or ""
+    presented = request.headers.get("x-fguard-fleet", "")
+    if not token_matches(presented, expected):
+        raise HTTPException(401, "Fleet token rejected")
+    state = traffic_security.status()
+    return {"version": APP_VERSION, "ips": state["ips_enabled"], "suricata": state["suricata_active"]}
 
 
 # ══════════════════════════════════════════════════════════════════════════════

@@ -1,11 +1,10 @@
 {
-  "version": "1.0.40",
+  "version": "1.0.41",
   "date": "2026-11-23",
   "product": "FGUARD",
   "changelog": [
-    "Updates apply only when version.json is signed and the archive matches that signature.",
-    "The factory admin password must be replaced before the rest of the UI will open.",
-    "Image builds no longer ship a published root password.",
-    "HA config sync checks the peer SSH host key and refuses any other key."
+    "Optional Suricata IPS on LAN to WAN client traffic, off until enabled, and fail-open if it stops.",
+    "Updating URL categories, download antivirus, and a confirmed-only HTTPS inspection mode.",
+    "Measured interface throughput, HA session sync, and a read-only view of other firewalls."
   ]
 }
