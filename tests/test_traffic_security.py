@@ -11,6 +11,7 @@ from core.traffic_security import (
     parse_domain_list,
     parse_eve_line,
     render_app_rules,
+    package_install_argv,
     render_suricata_yaml,
     summarize_blocks,
     tls_plan,
@@ -101,6 +102,13 @@ def test_conntrackd_uses_the_peer():
     assert "Port 3780" in text
     with pytest.raises(ValueError):
         render_conntrackd_conf("", "10.0.0.2", "eth1")
+
+
+def test_download_buttons_install_with_apt():
+    assert package_install_argv("suricata") == ["apt-get", "install", "-y", "suricata"]
+    assert package_install_argv(["clamav", "clamav-freshclam"])[:4] == ["apt-get", "install", "-y", "clamav"]
+    with pytest.raises(ValueError):
+        package_install_argv("suricata;rm")
 
 
 def test_fleet_url_rejects_metadata_and_passwords():

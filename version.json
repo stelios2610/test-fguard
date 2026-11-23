@@ -1,5 +1,5 @@
 {
-  "version": "1.0.41",
+  "version": "1.0.42",
   "date": "2026-11-23",
   "product": "FGUARD",
   "changelog": [
@@ -7,6 +7,7 @@
     "New images no longer ship a published root password. A machine that is already installed keeps its root password.",
     "HA sync accepts only the SSH host key you saved, and rejects the old VRRP password.",
     "Traffic Security is included and stays off: Suricata on LAN to WAN, URL categories, download antivirus, and HTTPS inspection.",
-    "Measured throughput, HA session sync when conntrackd is installed, and a read-only view of other firewalls."
+    "Measured throughput, HA session sync when conntrackd is installed, and a read-only view of other firewalls.",
+    "Traffic Security downloads Suricata, ClamAV, and sslsplit when you press Download and enable."
   ]
 }
