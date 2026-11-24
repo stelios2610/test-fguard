@@ -14,6 +14,8 @@ from core.traffic_security import (
     package_install_argv,
     render_suricata_yaml,
     summarize_blocks,
+    parse_tls_exclusions,
+    tls_exclude_rules,
     tls_plan,
 )
 
@@ -87,6 +89,20 @@ def test_measured_rates_use_byte_counters():
     rates = interface_rates(before, after, 1)
     assert rates["wan0"]["rx_mbps"] == 8.0
     assert rates["wan0"]["tx_mbps"] == 0.0
+
+
+def test_tls_exclusions_are_ipv4_sources():
+    assert parse_tls_exclusions("192.168.0.40\n# camera\n192.168.0.40\n10.0.0.0/24") == [
+        "192.168.0.40", "10.0.0.0/24",
+    ]
+    with pytest.raises(ValueError):
+        parse_tls_exclusions("camera.local")
+    nat_rules, filter_rules = tls_exclude_rules("lan0", ["192.168.0.40"])
+    assert nat_rules[0][nat_rules[0].index("-s") + 1] == "192.168.0.40"
+    assert nat_rules[0][-1] == "RETURN"
+    assert "udp" in filter_rules[0] and "--dport" in filter_rules[0]
+    assert filter_rules[0][-1] == "ACCEPT"
+    assert tls_exclude_rules("", ["192.168.0.40"]) == ([], [])
 
 
 def test_tls_stays_off_without_confirmation():
