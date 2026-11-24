@@ -1,9 +1,9 @@
 from datetime import datetime
 
 from core.parity import (
-    build_policy, expand_rule, feed_cap, ipset_restore_lines, parse_ip_network_list,
-    parse_rule_hits, render_proto_rules, rsync_excludes, sanitize_policy,
-    schedule_allows, top_talkers, rewrite_signatures,
+    boot_restore_plan, build_policy, expand_rule, feed_cap, ipset_restore_lines,
+    parse_ip_network_list, parse_rule_hits, render_proto_rules, rsync_excludes,
+    sanitize_policy, schedule_allows, top_talkers, rewrite_signatures,
 )
 from core.traffic_security import nfqueue_rules
 
@@ -56,6 +56,19 @@ def test_lists_graphs_and_protocol_names():
     proto = render_proto_rules()
     assert "alert tls" in proto and "drop " not in proto
     assert top_talkers([{"src_ip": "10.0.0.2"}, {"src_ip": "10.0.0.2"}, {"src_ip": "10.0.0.3"}])[0]["ip"] == "10.0.0.2"
+
+
+def test_reboot_restores_only_what_was_enabled():
+    quiet = boot_restore_plan({})
+    assert quiet == {"ips": False, "tls": False, "ipset": False}
+    armed = boot_restore_plan({
+        "traffic_ips_enabled": "1",
+        "tls_inspect_enabled": "1",
+        "tls_inspect_confirmed": "1",
+        "traffic_lists_extended": "1",
+    })
+    assert armed == {"ips": True, "tls": True, "ipset": True}
+    assert boot_restore_plan({"tls_inspect_enabled": "1"})["tls"] is False
 
 
 def test_synced_policy_round_trip(fresh_db):
